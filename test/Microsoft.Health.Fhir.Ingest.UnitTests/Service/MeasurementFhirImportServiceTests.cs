@@ -321,6 +321,38 @@ namespace Microsoft.Health.Fhir.Ingest.Service
             await fhirService.ReceivedWithAnyArgs(1).ProcessAsync(default, default);
         }
 
+        [Fact]
+        public async void GivenNonCompressedEventsForSameDeviceAndDifferentTypes_WhenProcessEventsAsync_FhirImportServiceInvokedSequentially_Test()
+        {
+            var log = Substitute.For<ITelemetryLogger>();
+            var options = BuildMockOptions();
+            var fhirService = Substitute.For<FhirImportService>();
+
+            var exceptionTelemetryProcessor = Substitute.For<IExceptionTelemetryProcessor>();
+
+            var fhirImport = new TestFhirImportService(fhirService, options, exceptionTelemetryProcessor);
+
+            var events = Enumerable.Range(0, 100)
+                .Select(i =>
+                {
+                    var e = Substitute.For<IEventMessage>();
+                    e.Body.Returns(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                        new Measurement
+                        {
+                            DeviceId = "device",
+                            PatientId = "patient",
+                            Type = $"{i % 5}",
+                        })));
+
+                    return e;
+                });
+
+            await fhirImport.ProcessEventsAsync(events, string.Empty, log);
+            await fhirService.ReceivedWithAnyArgs(5).ProcessAsync(default, default);
+
+            Assert.Equal(1, fhirImport.WorkItemCount);
+        }
+
         private static Stream ToStream(object obj)
         {
             var stream = new MemoryStream();
@@ -335,7 +367,6 @@ namespace Microsoft.Health.Fhir.Ingest.Service
 
         private MeasurementFhirImportOptions BuildMockOptions()
         {
-            var exceptionProcessor = Substitute.For<ExceptionTelemetryProcessor>();
             var templateFactory = Substitute.For<ITemplateFactory<string, ITemplateContext<ILookupTemplate<IFhirTemplate>>>>();
             var parallelTaskOptions = new ParallelTaskOptions();
 
